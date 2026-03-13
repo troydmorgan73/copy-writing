@@ -147,6 +147,7 @@ export async function writeAuditToSheets(
       "Manufacturer URL",
       "Price",
       "Audit Date",
+      "Shopify Product ID",
     ],
     // Data rows — column A filled by Apps Script, column B written here (colored by Apps Script)
     ...sorted.map((a) => [
@@ -172,6 +173,7 @@ export async function writeAuditToSheets(
       a.vendorUrl,
       a.price,
       auditDate,
+      a.id,  // Full Shopify GID (gid://shopify/Product/XXXXX)
     ]),
   ];
 
