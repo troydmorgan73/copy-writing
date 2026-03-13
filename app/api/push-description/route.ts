@@ -48,6 +48,23 @@ const UPDATE_MUTATION = `
   }
 `;
 
+const SET_METAFIELD_MUTATION = `
+  mutation($metafields: [MetafieldsSetInput!]!) {
+    metafieldsSet(metafields: $metafields) {
+      metafields {
+        id
+        namespace
+        key
+        value
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 interface ProductInput {
   id: string;
   descriptionHtml: string;
@@ -148,6 +165,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Step 2: Set metafield — mark description as complete
+    const metafieldResp = await fetch(GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+      },
+      body: JSON.stringify({
+        query: SET_METAFIELD_MUTATION,
+        variables: {
+          metafields: [
+            {
+              ownerId: product.id,
+              namespace: "custom",
+              key: "product_description_needs",
+              type: "single_line_text_field",
+              value: "Complete",
+            },
+          ],
+        },
+      }),
+    });
+
+    let metafieldOk = false;
+    if (metafieldResp.ok) {
+      const mfResult = await metafieldResp.json();
+      const mfErrors = mfResult?.data?.metafieldsSet?.userErrors;
+      metafieldOk = !mfErrors || mfErrors.length === 0;
+      if (!metafieldOk) {
+        console.log("[push-description] Metafield errors:", mfErrors);
+      }
+    }
+
     // Success
     const numericId = product.id.split("/").pop();
     return NextResponse.json({
@@ -162,6 +212,11 @@ export async function POST(req: NextRequest) {
       seo: {
         title: seoTitle || null,
         metaDesc: metaDesc || null,
+      },
+      metafield: {
+        set: metafieldOk,
+        field: "custom.product_description_needs",
+        value: "Complete",
       },
     });
   } catch (err) {
