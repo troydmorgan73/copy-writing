@@ -25,7 +25,16 @@ export const TIER_CONFIG: Record<Tier, TierConfig> = {
 };
 
 // Excluded product types — skip during audit
-export const EXCLUDED_TYPES = new Set(["service", "cpb_hybrid_temp", "cpb_hybrid"]);
+// Includes bundle app products, protection plans, gift cards, and empty types
+export const EXCLUDED_TYPES = new Set([
+  "", "service", "cpb_hybrid_temp", "cpb_hybrid", "cpb_product",
+  "extend protection plan", "gift card",
+]);
+
+// Excluded vendors — skip during audit (store-branded / internal)
+export const EXCLUDED_VENDORS = new Set([
+  "ra cycles",
+]);
 
 // Case-insensitive product type → tier map
 const TIER_MAP: Record<string, Tier> = {
@@ -203,9 +212,15 @@ export function getContentTier(productType: string): Tier {
 }
 
 /**
- * Check if a product type should be excluded from audit.
+ * Check if a product should be excluded from audit.
+ * Matches against excluded product types AND excluded vendors.
  */
-export function isExcluded(productType: string): boolean {
-  const key = (productType || "").trim().toLowerCase();
-  return EXCLUDED_TYPES.has(key);
+export function isExcluded(productType: string, vendor?: string): boolean {
+  const typeKey = (productType || "").trim().toLowerCase();
+  if (EXCLUDED_TYPES.has(typeKey)) return true;
+  if (vendor) {
+    const vendorKey = vendor.trim().toLowerCase();
+    if (EXCLUDED_VENDORS.has(vendorKey)) return true;
+  }
+  return false;
 }

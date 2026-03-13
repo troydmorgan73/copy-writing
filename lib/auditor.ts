@@ -341,7 +341,7 @@ function gradeMetaDesc(product: ShopifyProduct): Pick<ProductAudit, "metaDescSco
 // ── Main audit function ──
 
 export function auditProduct(product: ShopifyProduct): ProductAudit {
-  const excluded = isExcluded(product.productType);
+  const excluded = isExcluded(product.productType, product.vendor);
   const productUrl = `https://racycles.com/products/${product.handle}`;
 
   // Format price — show range if min !== max
