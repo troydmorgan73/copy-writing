@@ -1,9 +1,9 @@
 /**
- * Google Sheets writer — writes audit results to three tabs:
+ * Google Sheets writer — writes audit results to a single "SEO Improvement" tab.
+ * The existing tabs in the sheet are left untouched.
  *
- * Tab 1: "Full Audit"     — Every audited product with all scores
- * Tab 2: "Cleanup Queue"  — Products rated below "Good" (drops off when re-audited as Good)
- * Tab 3: "Summary"        — Roll-up stats by tier and rating
+ * Every active product is listed, sorted worst-first by content rating,
+ * so Jack can work top-down through the list.
  */
 
 import { google } from "googleapis";
@@ -11,16 +11,13 @@ import { type ProductAudit, type ContentRating } from "./auditor";
 
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
-// Tab names — these must match (or be created in) the existing Google Sheet
-const FULL_AUDIT_TAB = "Full Audit";
-const CLEANUP_TAB = "Cleanup Queue";
-const SUMMARY_TAB = "Summary";
+// Tab name — created automatically if it doesn't exist
+const TAB_NAME = "SEO Improvement";
 
 // ── Auth ──
 
 function getAuthClient() {
-  const keyJson = Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!, "base64").toString("utf-8");
-  const key = JSON.parse(keyJson);
+  const key = JSON.parse(process.env.RA_AUTOMATIONS_GOOGLE_KEY!);
 
   return new google.auth.GoogleAuth({
     credentials: key,
@@ -36,9 +33,6 @@ function getSheetsClient() {
 // ── Sheet helpers ──
 
 async function ensureTab(sheets: ReturnType<typeof getSheetsClient>, tabName: string) {
-  /**
-   * Check if a tab exists; create it if not.
-   */
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
   const exists = spreadsheet.data.sheets?.some(
     (s) => s.properties?.title === tabName
@@ -111,38 +105,36 @@ export async function writeAuditToSheets(
 ): Promise<void> {
   const sheets = getSheetsClient();
 
-  // Ensure all tabs exist
-  await ensureTab(sheets, FULL_AUDIT_TAB);
-  await ensureTab(sheets, CLEANUP_TAB);
-  await ensureTab(sheets, SUMMARY_TAB);
+  await ensureTab(sheets, TAB_NAME);
 
   const auditDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
-  // ── Tab 1: Full Audit ──
-  // Sort by rating (worst first), then by tier (biggest first), then alphabetical
+  // Sort by priority score descending (highest priority first)
+  // Within same score: tier ascending (T1 first), then price descending
   const sorted = [...audits].sort((a, b) => {
-    const ratingDiff = RATING_ORDER[a.contentRating] - RATING_ORDER[b.contentRating];
-    if (ratingDiff !== 0) return ratingDiff;
+    const priorityDiff = b.priorityScore - a.priorityScore;
+    if (priorityDiff !== 0) return priorityDiff;
     const tierDiff = a.contentTier - b.contentTier;
     if (tierDiff !== 0) return tierDiff;
-    return a.title.localeCompare(b.title);
+    return b.priceNum - a.priceNum;
   });
 
-  const fullAuditRows: (string | number)[][] = [
-    // Header row
+  // Use just the store name (strip .myshopify.com if present) for admin URLs
+  const storeName = (process.env.SHOPIFY_SHOP_NAME || "").replace(/\.myshopify\.com$/, "");
+
+  const rows: (string | number)[][] = [
+    // Header row — Compiled Info (col A) + Priority (col B) color-coded by Apps Script
     [
+      "Compiled Info",
+      "Priority",
       "Product Title",
       "Vendor",
       "Product Type",
-      "Status",
       "Tier",
       "Word Count",
       "Content Rating",
       "Content Issues",
       "H3 Count",
-      "Has Specs",
-      "Has Benefits",
-      "Has Final Take",
       "Bold Name",
       "SEO Title Score",
       "SEO Title Issues",
@@ -152,22 +144,22 @@ export async function writeAuditToSheets(
       "Current Meta Desc",
       "Product URL",
       "Shopify Admin",
+      "Manufacturer URL",
+      "Price",
       "Audit Date",
     ],
-    // Data rows
+    // Data rows — column A filled by Apps Script, column B written here (colored by Apps Script)
     ...sorted.map((a) => [
+      "",  // Compiled Info — populated by Apps Script
+      a.priorityLabel,
       a.title,
       a.vendor,
       a.productType,
-      a.status,
       `T${a.contentTier}`,
       a.wordCount,
       a.contentRating,
       a.contentIssues.join("; "),
       a.h3Count,
-      a.hasSpecsList ? "Yes" : "No",
-      a.hasDesignBenefits ? "Yes" : "No",
-      a.hasFinalTake ? "Yes" : "No",
       a.hasBoldProductName ? "Yes" : "No",
       a.seoTitleScore,
       a.seoTitleIssues.join("; "),
@@ -176,113 +168,15 @@ export async function writeAuditToSheets(
       a.metaDescIssues.join("; "),
       a.currentMetaDesc,
       a.productUrl,
-      `https://admin.shopify.com/store/${process.env.SHOPIFY_SHOP_NAME}/products/${a.id.split("/").pop()}`,
+      `https://admin.shopify.com/store/${storeName}/products/${a.id.split("/").pop()}`,
+      a.vendorUrl,
+      a.price,
       auditDate,
     ]),
   ];
 
-  await clearAndWrite(sheets, FULL_AUDIT_TAB, fullAuditRows);
+  await clearAndWrite(sheets, TAB_NAME, rows);
 
-  // ── Tab 2: Cleanup Queue ──
-  // Only products rated below "Good" — sorted worst first
-  const needsWork = sorted.filter((a) => a.contentRating !== "Good");
-
-  const cleanupRows: (string | number)[][] = [
-    [
-      "Product Title",
-      "Vendor",
-      "Product Type",
-      "Tier",
-      "Rating",
-      "Word Count",
-      "Issues",
-      "SEO Title Score",
-      "Meta Desc Score",
-      "Product URL",
-      "Shopify Admin",
-      "Audit Date",
-    ],
-    ...needsWork.map((a) => [
-      a.title,
-      a.vendor,
-      a.productType,
-      `T${a.contentTier}`,
-      a.contentRating,
-      a.wordCount,
-      a.contentIssues.join("; "),
-      a.seoTitleScore,
-      a.metaDescScore,
-      a.productUrl,
-      `https://admin.shopify.com/store/${process.env.SHOPIFY_SHOP_NAME}/products/${a.id.split("/").pop()}`,
-      auditDate,
-    ]),
-  ];
-
-  await clearAndWrite(sheets, CLEANUP_TAB, cleanupRows);
-
-  // ── Tab 3: Summary ──
-  // Roll-up stats by tier and overall
-
-  // Count by tier and rating
-  const tierStats: Record<number, Record<ContentRating, number>> = {};
-  for (const tier of [1, 2, 3, 4]) {
-    tierStats[tier] = { Good: 0, Light: 0, Thin: 0, Missing: 0 };
-  }
-  for (const a of audits) {
-    tierStats[a.contentTier][a.contentRating]++;
-  }
-
-  // SEO title stats
-  const titleMissing = audits.filter((a) => a.seoTitleScore === 0).length;
-  const titleWeak = audits.filter((a) => a.seoTitleScore > 0 && a.seoTitleScore < 70).length;
-  const titleGood = audits.filter((a) => a.seoTitleScore >= 70).length;
-
-  // Meta desc stats
-  const metaMissing = audits.filter((a) => a.metaDescScore === 0).length;
-  const metaWeak = audits.filter((a) => a.metaDescScore > 0 && a.metaDescScore < 70).length;
-  const metaGood = audits.filter((a) => a.metaDescScore >= 70).length;
-
-  const summaryRows: (string | number)[][] = [
-    ["RA Cycles Product Audit Summary", "", "", "", "", ""],
-    [`Audit Date: ${auditDate}`, "", "", "", "", ""],
-    ["", "", "", "", "", ""],
-    ["── CONTENT RATINGS BY TIER ──", "", "", "", "", ""],
-    ["Tier", "Good", "Light", "Thin", "Missing", "Total"],
-    ...([1, 2, 3, 4] as const).map((tier) => {
-      const s = tierStats[tier];
-      const total = s.Good + s.Light + s.Thin + s.Missing;
-      return [
-        `Tier ${tier} (${tier === 1 ? "Bikes/Wheels" : tier === 2 ? "Apparel/Shoes" : tier === 3 ? "Components" : "Accessories"})`,
-        s.Good, s.Light, s.Thin, s.Missing, total,
-      ];
-    }),
-    [
-      "TOTAL",
-      summary.good, summary.light, summary.thin, summary.missing,
-      summary.good + summary.light + summary.thin + summary.missing,
-    ],
-    ["", "", "", "", "", ""],
-    ["── OVERALL ──", "", "", "", "", ""],
-    ["Total products", summary.total, "", "", "", ""],
-    ["Audited", audits.length, "", "", "", ""],
-    ["Excluded (Service/Custom)", summary.excluded, "", "", "", ""],
-    ["Needs work (below Good)", needsWork.length, "", "", "", ""],
-    [
-      "Good %",
-      audits.length > 0 ? `${((summary.good / audits.length) * 100).toFixed(1)}%` : "N/A",
-      "", "", "", "",
-    ],
-    ["", "", "", "", "", ""],
-    ["── SEO TITLE SCORES ──", "", "", "", "", ""],
-    ["Good (70+)", titleGood, "", "", "", ""],
-    ["Weak (<70)", titleWeak, "", "", "", ""],
-    ["Missing (0)", titleMissing, "", "", "", ""],
-    ["", "", "", "", "", ""],
-    ["── META DESCRIPTION SCORES ──", "", "", "", "", ""],
-    ["Good (70+)", metaGood, "", "", "", ""],
-    ["Weak (<70)", metaWeak, "", "", "", ""],
-    ["Missing (0)", metaMissing, "", "", "", ""],
-  ];
-
-  await clearAndWrite(sheets, SUMMARY_TAB, summaryRows);
+  console.log(`  [sheets] Audit complete: ${summary.total} total, ${audits.length} audited, ${summary.excluded} excluded`);
+  console.log(`  [sheets] Ratings: ${summary.good} Good, ${summary.light} Light, ${summary.thin} Thin, ${summary.missing} Missing`);
 }

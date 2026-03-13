@@ -10,6 +10,7 @@ import { type ShopifyProduct } from "./shopify";
 import { getContentTier, isExcluded, TIER_CONFIG, type Tier } from "./tier-mapping";
 
 export type ContentRating = "Good" | "Light" | "Thin" | "Missing";
+export type PriorityLabel = "Critical" | "High" | "Medium" | "Low";
 
 export interface ProductAudit {
   // Product info
@@ -20,6 +21,13 @@ export interface ProductAudit {
   productType: string;
   status: string;
   productUrl: string;
+  vendorUrl: string;
+  price: string;
+  priceNum: number;  // raw numeric price for sorting
+
+  // Priority
+  priorityScore: number;     // 0-100, higher = more urgent
+  priorityLabel: PriorityLabel;
 
   // Content audit
   contentTier: Tier;
@@ -45,6 +53,34 @@ export interface ProductAudit {
 
   // Overall
   excluded: boolean;
+}
+
+// ── Priority scoring ──
+// Primary: Tier (T1 first) → Secondary: Rating (Missing first) → Tertiary: Price (expensive first)
+// Score is designed so sorting descending gives the right order.
+
+const TIER_PRIORITY: Record<Tier, number> = { 1: 40, 2: 30, 3: 20, 4: 10 };
+const RATING_PRIORITY: Record<ContentRating, number> = { Missing: 40, Thin: 30, Light: 15, Good: 0 };
+
+function calcPriority(tier: Tier, rating: ContentRating, priceNum: number): { priorityScore: number; priorityLabel: PriorityLabel } {
+  // Tier + Rating gives 0-80 base, price adds 0-20
+  const priceFactor = Math.min(priceNum / 250, 1) * 20;  // $250+ maxes out the price bonus
+  const score = Math.round(TIER_PRIORITY[tier] + RATING_PRIORITY[rating] + priceFactor);
+
+  let label: PriorityLabel;
+  if (rating === "Good") {
+    label = "Low";
+  } else if (tier <= 2 && (rating === "Missing" || rating === "Thin")) {
+    label = "Critical";
+  } else if (tier <= 2 || rating === "Missing") {
+    label = "High";
+  } else if (rating === "Thin") {
+    label = "High";
+  } else {
+    label = "Medium";
+  }
+
+  return { priorityScore: score, priorityLabel: label };
 }
 
 // ── HTML helpers ──
@@ -308,6 +344,13 @@ export function auditProduct(product: ShopifyProduct): ProductAudit {
   const excluded = isExcluded(product.productType);
   const productUrl = `https://racycles.com/products/${product.handle}`;
 
+  // Format price — show range if min !== max
+  const minP = parseFloat(product.minPrice);
+  const maxP = parseFloat(product.maxPrice);
+  const price = minP === maxP
+    ? `$${minP.toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+    : `$${minP.toLocaleString("en-US", { minimumFractionDigits: 2 })} - $${maxP.toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
+
   if (excluded) {
     return {
       id: product.id,
@@ -317,6 +360,11 @@ export function auditProduct(product: ShopifyProduct): ProductAudit {
       productType: product.productType,
       status: product.status,
       productUrl,
+      vendorUrl: product.vendorUrl,
+      price,
+      priceNum: maxP,
+      priorityScore: 0,
+      priorityLabel: "Low" as PriorityLabel,
       contentTier: 3,
       contentTierLabel: "Excluded",
       wordCount: 0,
@@ -340,6 +388,7 @@ export function auditProduct(product: ShopifyProduct): ProductAudit {
   const content = gradeContent(product);
   const seoTitle = gradeSeoTitle(product);
   const metaDesc = gradeMetaDesc(product);
+  const priority = calcPriority(content.contentTier, content.contentRating, maxP);
 
   return {
     id: product.id,
@@ -349,6 +398,10 @@ export function auditProduct(product: ShopifyProduct): ProductAudit {
     productType: product.productType,
     status: product.status,
     productUrl,
+    vendorUrl: product.vendorUrl,
+    price,
+    priceNum: maxP,
+    ...priority,
     ...content,
     ...seoTitle,
     ...metaDesc,

@@ -2,7 +2,9 @@
  * Shopify GraphQL client — fetches all products with pagination and throttle handling.
  */
 
-const SHOPIFY_STORE = process.env.SHOPIFY_SHOP_NAME!;
+const RAW_STORE = process.env.SHOPIFY_SHOP_NAME!;
+// Handle both "store-name" and "store-name.myshopify.com" formats
+const SHOPIFY_STORE = RAW_STORE.replace(/\.myshopify\.com$/, "");
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN!;
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2025-10";
 
@@ -21,6 +23,7 @@ export interface ShopifyProduct {
   descriptionHtml: string;
   minPrice: string;
   maxPrice: string;
+  vendorUrl: string;
 }
 
 // ── GraphQL with throttle handling ──
@@ -82,7 +85,7 @@ function sleep(ms: number): Promise<void> {
 
 const PRODUCTS_QUERY = `
 query($first: Int!, $cursor: String) {
-  products(first: $first, after: $cursor, sortKey: TITLE) {
+  products(first: $first, after: $cursor, sortKey: TITLE, query: "status:active") {
     edges {
       cursor
       node {
@@ -101,6 +104,9 @@ query($first: Int!, $cursor: String) {
         priceRangeV2 {
           minVariantPrice { amount currencyCode }
           maxVariantPrice { amount currencyCode }
+        }
+        vendorUrl: metafield(namespace: "custom", key: "vendor_url") {
+          value
         }
       }
     }
@@ -125,6 +131,7 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
       const priceRange = node.priceRangeV2 as Record<string, unknown> | null;
       const minVariant = priceRange?.minVariantPrice as Record<string, unknown> | null;
       const maxVariant = priceRange?.maxVariantPrice as Record<string, unknown> | null;
+      const vendorUrlMeta = node.vendorUrl as Record<string, unknown> | null;
 
       allProducts.push({
         id: node.id as string,
@@ -139,6 +146,7 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
         descriptionHtml: (node.descriptionHtml as string) || "",
         minPrice: (minVariant?.amount as string) || "0",
         maxPrice: (maxVariant?.amount as string) || "0",
+        vendorUrl: (vendorUrlMeta?.value as string) || "",
       });
     }
 

@@ -25,7 +25,7 @@ export const TIER_CONFIG: Record<Tier, TierConfig> = {
 };
 
 // Excluded product types — skip during audit
-export const EXCLUDED_TYPES = new Set(["service", "cpb_hybrid_temp"]);
+export const EXCLUDED_TYPES = new Set(["service", "cpb_hybrid_temp", "cpb_hybrid"]);
 
 // Case-insensitive product type → tier map
 const TIER_MAP: Record<string, Tier> = {
