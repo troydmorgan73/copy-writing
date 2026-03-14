@@ -9,6 +9,7 @@ Two-part system for managing product descriptions across ~8,900 products on the 
 - **Framework:** Next.js 15 (App Router) on Vercel
 - **Runtime:** Serverless functions (Node.js), max 300s for audit, 30s for push
 - **Deployment:** Vercel Git integration — push to `main` triggers deploy
+- **Production URL:** `copy-writing-rouge.vercel.app`
 - **Repo:** `troydmorgan73/copy-writing` on GitHub
 
 ### Key Files
@@ -48,7 +49,7 @@ The audit writes to a Google Sheet with 23 columns (A-W):
 - Tier info and word targets
 - Vendor URL and Shopify Product ID (column W — the full GID like `gid://shopify/Product/XXXXX`)
 
-Troy has a Google Apps Script (`compileSeoInfo()`) that reads the sheet and generates a "Compiled Info" block for each product — this is what gets pasted into Claude to trigger the product-descriptions skill.
+Troy has a Google Apps Script (`compileSeoInfo()`) that reads the sheet and generates a "Compiled Info" block for each product — this is what gets pasted into Claude to trigger the `product-descriptions` skill (installed globally at `~/.claude/skills/product-descriptions/`).
 
 ### Rating System
 - **Good** — Meets word count target AND has required structural elements
@@ -78,11 +79,12 @@ Local development uses `.env.local` with the same keys.
 
 ## Workflow: Writing Product Descriptions
 1. Daily audit runs and populates the Google Sheet
-2. Troy's Apps Script generates a Compiled Info block for a product
-3. Troy pastes the Compiled Info into Claude (triggers the `product-descriptions` skill)
+2. Troy's Apps Script generates a Compiled Info block for a product (includes Shopify Product ID from column W)
+3. Troy pastes the Compiled Info into Claude (triggers the global `product-descriptions` skill at `~/.claude/skills/product-descriptions/`)
 4. Claude researches the product, writes a T1-T4 description, generates SEO title + meta
 5. Troy reviews and says "push it"
-6. Claude POSTs to `/api/push-description` — Shopify gets the HTML, SEO fields, and the metafield is set to "Complete"
+6. Claude navigates Chrome to `https://copy-writing-rouge.vercel.app` and uses same-origin `fetch('/api/push-description', ...)` to POST the description, SEO fields, and product ID
+7. The endpoint pushes to Shopify and sets `custom.product_description_needs` metafield to "Complete"
 
 ## Current Status
 Deployed and running in production. Daily audit cron executes at 6 AM UTC. Push endpoint is deployed and ready for use.

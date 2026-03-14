@@ -79,6 +79,7 @@ interface PushRequestBody {
   html: string;
   seoTitle?: string;
   metaDesc?: string;
+  raPerspective?: string;
 }
 
 // ── Handler ──
@@ -105,7 +106,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { productId, html, seoTitle, metaDesc } = body;
+  const { productId, html, seoTitle, metaDesc, raPerspective } = body;
 
   if (!productId || !html) {
     return NextResponse.json(
@@ -165,7 +166,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 2: Set metafield — mark description as complete
+    // Step 2: Set metafields — mark complete + RA Perspective (if provided)
+    const metafieldsToSet: Array<{
+      ownerId: string;
+      namespace: string;
+      key: string;
+      type: string;
+      value: string;
+    }> = [
+      {
+        ownerId: product.id,
+        namespace: "custom",
+        key: "product_description_needs",
+        type: "single_line_text_field",
+        value: "Complete",
+      },
+    ];
+
+    if (raPerspective) {
+      metafieldsToSet.push({
+        ownerId: product.id,
+        namespace: "custom",
+        key: "the_ra_perspective",
+        type: "multi_line_text_field",
+        value: raPerspective,
+      });
+    }
+
     const metafieldResp = await fetch(GRAPHQL_URL, {
       method: "POST",
       headers: {
@@ -174,17 +201,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         query: SET_METAFIELD_MUTATION,
-        variables: {
-          metafields: [
-            {
-              ownerId: product.id,
-              namespace: "custom",
-              key: "product_description_needs",
-              type: "single_line_text_field",
-              value: "Complete",
-            },
-          ],
-        },
+        variables: { metafields: metafieldsToSet },
       }),
     });
 
@@ -217,6 +234,11 @@ export async function POST(req: NextRequest) {
         set: metafieldOk,
         field: "custom.product_description_needs",
         value: "Complete",
+      },
+      raPerspective: {
+        set: metafieldOk && !!raPerspective,
+        field: "custom.the_ra_perspective",
+        included: !!raPerspective,
       },
     });
   } catch (err) {
