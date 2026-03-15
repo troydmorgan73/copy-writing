@@ -3,6 +3,10 @@
     {
       "path": "/api/audit",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/collection-audit",
+      "schedule": "15 6 * * *"
     }
   ]
 }

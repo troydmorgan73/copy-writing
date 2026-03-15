@@ -12,7 +12,7 @@ import { type ProductAudit, type ContentRating } from "./auditor";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
 // Tab name — created automatically if it doesn't exist
-const TAB_NAME = "SEO Improvement";
+const TAB_NAME = "Product Page Copy";
 
 // ── Auth ──
 
@@ -39,19 +39,40 @@ async function ensureTab(sheets: ReturnType<typeof getSheetsClient>, tabName: st
   );
 
   if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SHEET_ID,
-      requestBody: {
-        requests: [
-          {
-            addSheet: {
-              properties: { title: tabName },
+    // Check if the old "SEO Improvement" tab exists and rename it
+    const oldTab = spreadsheet.data.sheets?.find(
+      (s) => s.properties?.title === "SEO Improvement"
+    );
+    if (oldTab?.properties?.sheetId != null) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [
+            {
+              updateSheetProperties: {
+                properties: { sheetId: oldTab.properties.sheetId, title: tabName },
+                fields: "title",
+              },
             },
-          },
-        ],
-      },
-    });
-    console.log(`  [sheets] Created tab: ${tabName}`);
+          ],
+        },
+      });
+      console.log(`  [sheets] Renamed tab "SEO Improvement" → "${tabName}"`);
+    } else {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SHEET_ID,
+        requestBody: {
+          requests: [
+            {
+              addSheet: {
+                properties: { title: tabName },
+              },
+            },
+          ],
+        },
+      });
+      console.log(`  [sheets] Created tab: ${tabName}`);
+    }
   }
 }
 
@@ -109,9 +130,12 @@ export async function writeAuditToSheets(
 
   const auditDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
+  // Filter out "Low" priority (Good ratings) — they don't need attention
+  const actionable = audits.filter((a) => a.priorityLabel !== "Low");
+
   // Sort by priority score descending (highest priority first)
   // Within same score: tier ascending (T1 first), then price descending
-  const sorted = [...audits].sort((a, b) => {
+  const sorted = [...actionable].sort((a, b) => {
     const priorityDiff = b.priorityScore - a.priorityScore;
     if (priorityDiff !== 0) return priorityDiff;
     const tierDiff = a.contentTier - b.contentTier;
