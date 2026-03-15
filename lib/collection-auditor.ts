@@ -77,10 +77,17 @@ const EXCLUDED_TITLE_PATTERNS = [
   /^test/i,
 ];
 
+// Discover pages have their own copywriting workflow — exclude from collection audit
+const EXCLUDED_TEMPLATE_SUFFIXES = new Set([
+  "discover-template",
+  "discover-2026",
+]);
+
 function isExcludedCollection(collection: ShopifyCollection): boolean {
   if (EXCLUDED_HANDLES.has(collection.handle)) return true;
   if (collection.productsCount === 0) return true;
   if (EXCLUDED_TITLE_PATTERNS.some((re) => re.test(collection.title))) return true;
+  if (EXCLUDED_TEMPLATE_SUFFIXES.has(collection.templateSuffix)) return true;
   return false;
 }
 
