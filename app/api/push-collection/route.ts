@@ -14,6 +14,7 @@
  *   2. SEO title + meta description
  *   3. custom.copy_last_updated metafield (today's date)
  *   4. Footer metaobject heading + brand_info (if footer fields provided)
+ *      — auto-creates metaobject + links it if none exists
  *
  * Protected by CRON_SECRET via Bearer token.
  */
@@ -126,6 +127,21 @@ const UPDATE_METAOBJECT = `
   }
 `;
 
+// Create a new Collection Brand Info metaobject
+const CREATE_METAOBJECT = `
+  mutation($metaobject: MetaobjectCreateInput!) {
+    metaobjectCreate(metaobject: $metaobject) {
+      metaobject {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 interface PushCollectionBody {
   collectionId: string;
   headerHtml: string;
@@ -207,15 +223,16 @@ export async function POST(req: NextRequest) {
       console.log("[push-collection] Metafield errors:", mfErrors);
     }
 
-    // Step 3: Update footer metaobject (if footer content provided)
+    // Step 3: Update or create footer metaobject (if footer content provided)
     let footerOk = false;
+    let footerCreated = false;
     if (footerHeading || footerHtml) {
       // Find the existing footer metaobject linked to this collection
       const footerQuery = await shopifyGraphQL(GET_FOOTER_METAOBJECT, {
         collectionId: collection.id,
       });
 
-      const metaobjectId =
+      let metaobjectId =
         footerQuery?.data?.collection?.metafield?.reference?.id;
 
       if (metaobjectId) {
@@ -239,9 +256,55 @@ export async function POST(req: NextRequest) {
           console.log("[push-collection] Metaobject update errors:", moErrors);
         }
       } else {
-        console.log(
-          "[push-collection] No footer metaobject linked — skipping footer update"
-        );
+        // No metaobject linked — create one and link it to the collection
+        console.log("[push-collection] No footer metaobject found — creating one");
+
+        const fields: Array<{ key: string; value: string }> = [];
+        if (footerHeading) {
+          fields.push({ key: "heading", value: footerHeading });
+        }
+        if (footerHtml) {
+          fields.push({ key: "brand_info", value: footerHtml });
+        }
+
+        // Create the metaobject
+        const createResult = await shopifyGraphQL(CREATE_METAOBJECT, {
+          metaobject: {
+            type: "collection_brand_info",
+            fields,
+          },
+        });
+
+        const createErrors = createResult?.data?.metaobjectCreate?.userErrors;
+        if (createErrors && createErrors.length > 0) {
+          console.log("[push-collection] Metaobject create errors:", createErrors);
+        } else {
+          metaobjectId = createResult?.data?.metaobjectCreate?.metaobject?.id;
+          footerCreated = true;
+
+          if (metaobjectId) {
+            // Link the new metaobject to the collection via brand_info_footer metafield
+            const linkResult = await shopifyGraphQL(SET_METAFIELD, {
+              metafields: [
+                {
+                  ownerId: collection.id,
+                  namespace: "custom",
+                  key: "brand_info_footer",
+                  type: "metaobject_reference",
+                  value: metaobjectId,
+                },
+              ],
+            });
+
+            const linkErrors = linkResult?.data?.metafieldsSet?.userErrors;
+            footerOk = !linkErrors || linkErrors.length === 0;
+            if (!footerOk) {
+              console.log("[push-collection] Metafield link errors:", linkErrors);
+            } else {
+              console.log(`[push-collection] Created and linked footer metaobject ${metaobjectId}`);
+            }
+          }
+        }
       }
     }
 
@@ -266,6 +329,7 @@ export async function POST(req: NextRequest) {
       },
       footer: {
         updated: footerOk,
+        created: footerCreated,
         provided: !!(footerHeading || footerHtml),
       },
     });
