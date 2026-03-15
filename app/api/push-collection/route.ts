@@ -247,7 +247,7 @@ export async function POST(req: NextRequest) {
 
         const moResult = await shopifyGraphQL(UPDATE_METAOBJECT, {
           id: metaobjectId,
-          metaobject: { fields },
+          metaobject: { status: "ACTIVE", fields },
         });
 
         const moErrors = moResult?.data?.metaobjectUpdate?.userErrors;
@@ -267,10 +267,11 @@ export async function POST(req: NextRequest) {
           fields.push({ key: "brand_info", value: footerHtml });
         }
 
-        // Create the metaobject
+        // Create the metaobject as ACTIVE (not draft)
         const createResult = await shopifyGraphQL(CREATE_METAOBJECT, {
           metaobject: {
             type: "collection_brand_info",
+            status: "ACTIVE",
             fields,
           },
         });
