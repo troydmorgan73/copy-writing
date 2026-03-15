@@ -61,7 +61,7 @@ async function clearAndWrite(
 ) {
   await sheets.spreadsheets.values.clear({
     spreadsheetId: SHEET_ID,
-    range: `'${tabName}'!A:AD`,
+    range: `'${tabName}'!A:AE`,
   });
 
   if (rows.length > 0) {
@@ -99,12 +99,10 @@ export async function writeCollectionAuditToSheets(
 
   const auditDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
-  // Filter out "Low" priority (Good ratings) — they don't need attention
-  const actionable = audits.filter((a) => a.priorityLabel !== "Low");
-
+  // Keep ALL collections (including Low/Good) — collections need regular updates
   // Sort by priority score descending (highest priority first)
   // Within same score: brand before category, then by product count
-  const sorted = [...actionable].sort((a, b) => {
+  const sorted = [...audits].sort((a, b) => {
     const priorityDiff = b.priorityScore - a.priorityScore;
     if (priorityDiff !== 0) return priorityDiff;
     // Brand collections first within same priority
@@ -119,38 +117,40 @@ export async function writeCollectionAuditToSheets(
   const rows: (string | number)[][] = [
     // Header row
     [
-      "Priority",           // A
-      "Collection Title",   // B
-      "Type",               // C — Brand or Category
-      "Template",           // D — Shopify template suffix
-      "Products",           // E — product count
-      "Header Words",       // E
-      "Header Rating",      // F
-      "Header Issues",      // G
-      "Paragraphs",         // H
-      "Internal Links",     // I — Yes/No
-      "Models Mentioned",   // J — Yes/No (brand collections)
-      "Brands Mentioned",   // K — Yes/No (category collections)
-      "Footer Words",       // L — brand collections only
-      "Footer Rating",      // M
-      "Footer Issues",      // N
-      "Footer Heading",     // O — Yes/No
-      "Brand Link",         // P — Yes/No (link to brand website)
-      "SEO Title Score",    // Q
-      "SEO Title Issues",   // R
-      "Current SEO Title",  // S
-      "Meta Desc Score",    // T
-      "Meta Desc Issues",   // U
-      "Current Meta Desc",  // V
-      "Collection URL",     // W
-      "Shopify Admin",      // X
-      "Top Products",       // Y — top 5 products for context
-      "Last Copy Update",   // Z — from metafield
-      "Audit Date",         // AA
-      "Collection ID",      // AB — full GID
+      "Compiled Info",      // A — populated by Apps Script
+      "Priority",           // B
+      "Collection Title",   // C
+      "Type",               // D — Brand or Category
+      "Template",           // E — Shopify template suffix
+      "Products",           // F — product count
+      "Header Words",       // G
+      "Header Rating",      // H
+      "Header Issues",      // I
+      "Paragraphs",         // J
+      "Internal Links",     // K — Yes/No
+      "Models Mentioned",   // L — Yes/No (brand collections)
+      "Brands Mentioned",   // M — Yes/No (category collections)
+      "Footer Words",       // N — brand collections only
+      "Footer Rating",      // O
+      "Footer Issues",      // P
+      "Footer Heading",     // Q — Yes/No
+      "Brand Link",         // R — Yes/No (link to brand website)
+      "SEO Title Score",    // S
+      "SEO Title Issues",   // T
+      "Current SEO Title",  // U
+      "Meta Desc Score",    // V
+      "Meta Desc Issues",   // W
+      "Current Meta Desc",  // X
+      "Collection URL",     // Y
+      "Shopify Admin",      // Z
+      "Top Products",       // AA — top 5 products for context
+      "Last Copy Update",   // AB — from metafield
+      "Audit Date",         // AC
+      "Collection ID",      // AD — full GID
     ],
-    // Data rows
+    // Data rows — column A (Compiled Info) populated by Apps Script
     ...sorted.map((a) => [
+      "",  // Compiled Info — populated by Apps Script
       a.priorityLabel,
       a.title,
       a.collectionType,
