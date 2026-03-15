@@ -267,10 +267,11 @@ export async function POST(req: NextRequest) {
           fields.push({ key: "brand_info", value: footerHtml });
         }
 
-        // Create the metaobject (status field is not valid on create input)
+        // Create the metaobject with ACTIVE status
         const createResult = await shopifyGraphQL(CREATE_METAOBJECT, {
           metaobject: {
             type: "collection_brand_info",
+            status: "ACTIVE",
             fields,
           },
         });
