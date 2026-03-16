@@ -179,14 +179,14 @@ interface ContentConfig {
 const CONTENT_CONFIG: Record<CollectionType, ContentConfig> = {
   Brand: {
     thinBelow: 50,
-    lightBelow: 100,
-    goodAbove: 150,
+    lightBelow: 75,
+    goodAbove: 100,
     label: "Brand Collection",
   },
   Category: {
     thinBelow: 50,
-    lightBelow: 100,
-    goodAbove: 150,
+    lightBelow: 75,
+    goodAbove: 100,
     label: "Category Collection",
   },
 };
