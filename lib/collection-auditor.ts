@@ -270,24 +270,15 @@ function gradeHeader(collection: ShopifyCollection, collectionType: CollectionTy
   };
 }
 
-// ── Footer grading (brand collections only) ──
+// ── Footer grading (all collections) ──
 
-// Footer should be 100+ words about the brand's history, heritage, and RA's relationship.
-// Should have a heading and ideally link to the brand's website.
+// Footer should be 150-250 words. Brand collections: brand history/heritage.
+// Category collections: category definition, what RA carries, internal links.
+// Should have a heading and ideally link to relevant content.
 
 function gradeFooter(collection: ShopifyCollection, collectionType: CollectionType): Pick<CollectionAudit,
   "footerWordCount" | "footerRating" | "footerIssues" | "hasFooterHeading" | "hasBrandWebsiteLink"
 > {
-  // Category collections don't use the footer metaobject (yet)
-  if (collectionType === "Category") {
-    return {
-      footerWordCount: 0,
-      footerRating: "Missing",
-      footerIssues: ["N/A — Category collection (no footer expected)"],
-      hasFooterHeading: false,
-      hasBrandWebsiteLink: false,
-    };
-  }
 
   const footerText = collection.footerHtml || "";
   const wordCount = footerText ? footerText.split(/\s+/).length : 0;
@@ -302,7 +293,7 @@ function gradeFooter(collection: ShopifyCollection, collectionType: CollectionTy
     return {
       footerWordCount: 0,
       footerRating: "Missing",
-      footerIssues: ["No footer text — needs brand history/heritage copy"],
+      footerIssues: ["No collection footer — needs copy written"],
       hasFooterHeading: hasHeading,
       hasBrandWebsiteLink: false,
     };
@@ -311,10 +302,10 @@ function gradeFooter(collection: ShopifyCollection, collectionType: CollectionTy
   let rating: ContentRating;
   if (wordCount < 50) {
     rating = "Thin";
-    issues.push(`Only ${wordCount} words (minimum 50 for brand footer)`);
+    issues.push(`Only ${wordCount} words (minimum 50 for footer)`);
   } else if (wordCount < 100) {
     rating = "Light";
-    issues.push(`${wordCount} words — could be stronger (ideal 100+ for brand footer)`);
+    issues.push(`${wordCount} words — could be stronger (target 150-250 for footer)`);
   } else {
     rating = "Good";
   }
