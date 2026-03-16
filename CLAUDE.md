@@ -1,13 +1,15 @@
-# RA Cycles — Copy Writing
+# RA Cycles — Copy Writing (Vercel App)
 
 ## Purpose
-Two-part system for managing product descriptions across ~8,900 products on the RA Cycles Shopify store:
-1. **Daily Audit** — Grades every product's description, SEO title, and meta description against a tier-based quality standard. Writes results to Google Sheets and sends a Slack summary.
-2. **Push Description** — API endpoint that accepts a product description, SEO metadata, and pushes it directly to Shopify. Also marks the product's `custom.product_description_needs` metafield as "Complete".
+Four-endpoint system for managing product and collection copy across ~8,900 products and ~400 collections on the RA Cycles Shopify store:
+1. **Product Audit** — Daily cron grades every product's description, SEO title, and meta description. Writes to Google Sheets and sends Slack summary.
+2. **Collection Audit** — Daily cron grades every collection's header, footer, and SEO fields. Writes to Google Sheets.
+3. **Push Product Description** — API endpoint that pushes product description, SEO metadata, RA Perspective, and metafield to Shopify.
+4. **Push Collection** — API endpoint that pushes collection header, footer (auto-creates metaobject if needed), SEO fields, and copy_last_updated to Shopify.
 
 ## Architecture
 - **Framework:** Next.js 15 (App Router) on Vercel
-- **Runtime:** Serverless functions (Node.js), max 300s for audit, 30s for push
+- **Runtime:** Serverless functions (Node.js), max 300s for audits, 30s for push
 - **Deployment:** Vercel Git integration — push to `main` triggers deploy
 - **Production URL:** `copy-writing-rouge.vercel.app`
 - **Repo:** `troydmorgan73/copy-writing` on GitHub
@@ -15,55 +17,97 @@ Two-part system for managing product descriptions across ~8,900 products on the 
 ### Key Files
 | File | Purpose |
 |------|---------|
-| `app/api/audit/route.ts` | Cron endpoint — fetches all products → grades → writes to Sheets → Slack notification |
-| `app/api/push-description/route.ts` | POST endpoint — pushes description HTML, SEO title, meta desc, and metafield to Shopify |
+| `app/api/audit/route.ts` | Cron — fetches all products → grades → writes "Product Page Copy" tab to Sheets → Slack |
+| `app/api/collection-audit/route.ts` | Cron — fetches all collections → grades → writes "Collection Audit" tab to Sheets |
+| `app/api/push-description/route.ts` | POST — pushes product description HTML, SEO, RA Perspective, and metafield to Shopify |
+| `app/api/push-collection/route.ts` | POST — pushes collection header, footer metaobject, SEO, and copy_last_updated to Shopify |
 | `lib/shopify.ts` | Shopify GraphQL client with pagination and throttle/retry handling |
-| `lib/auditor.ts` | Grading engine — content rating, SEO title score, meta description score |
+| `lib/shopify-collections.ts` | Shopify GraphQL client for fetching collections with metafields and top products |
+| `lib/auditor.ts` | Product grading engine — content rating, SEO title score, meta description score |
+| `lib/collection-auditor.ts` | Collection grading engine — header/footer rating, SEO scores, type detection |
 | `lib/tier-mapping.ts` | Product type → tier map (417+ types across 4 tiers) |
-| `lib/sheets.ts` | Google Sheets writer — Full Audit, Cleanup Queue, Summary tabs (23 columns including Shopify Product ID) |
-| `google-apps-script.js` | Reference copy of Troy's Google Apps Script that reads the sheet and generates Compiled Info blocks |
-| `push_to_shopify.py` | Standalone Python push script (fallback for local use in VS Code) |
-| `vercel.json` | Cron config — audit runs daily at 6:00 AM UTC |
+| `lib/sheets.ts` | Google Sheets writer for product audit (Product Page Copy tab, excludes Low priority) |
+| `lib/collection-sheets.ts` | Google Sheets writer for collection audit (Collection Audit tab, all collections shown) |
+| `vercel.json` | Cron config — product audit at 6:00 AM UTC, collection audit at 6:15 AM UTC |
 
 ### API Endpoints
 
-**GET /api/audit** (Cron)
+**GET /api/audit** (Cron — 6:00 AM UTC daily)
 - Fetches all ~8,900 products via Shopify GraphQL (paginated, throttle-aware)
 - Grades each product against tier-specific word count and structural requirements
-- Writes three tabs to Google Sheets: Full Audit, Cleanup Queue, Summary
+- Writes to "Product Page Copy" tab in Google Sheets (excludes Low priority products)
 - Sends a Slack notification with roll-up stats
 - Auth: Vercel Cron (`CRON_SECRET` via `Authorization: Bearer`)
 - Duration: ~3-4 minutes for full catalog
 
+**GET /api/collection-audit** (Cron — 6:15 AM UTC daily)
+- Fetches all collections with header HTML, footer metaobject, SEO fields, and top products
+- Grades header/footer content, detects collection type (Brand vs Category)
+- Excludes: empty collections, discover-template/discover-2026 templates, system collections
+- Writes to "Collection Audit" tab in Google Sheets (all collections shown, including Low)
+- Auth: Vercel Cron (`CRON_SECRET` via `Authorization: Bearer`)
+
 **POST /api/push-description**
-- Accepts JSON body: `{ productId, html, seoTitle?, metaDesc? }`
+- Accepts JSON body: `{ productId, html, seoTitle?, metaDesc?, raPerspective? }`
 - Updates the Shopify product's `descriptionHtml` and SEO fields via `productUpdate` mutation
-- Sets `custom.product_description_needs` metafield to "Complete" via `metafieldsSet` mutation
+- Sets `custom.product_description_needs` metafield to "Complete"
+- Optionally sets `custom.the_ra_perspective` metafield (T1/T2 products)
 - Auth: `CRON_SECRET` via `Authorization: Bearer`
-- Duration: <5 seconds
+
+**POST /api/push-collection**
+- Accepts JSON body: `{ collectionId, headerHtml, seoTitle?, metaDesc?, footerHeading?, footerHtml? }`
+- Updates the collection's `descriptionHtml` and SEO fields
+- Sets `custom.copy_last_updated` metafield to today's date
+- Updates or creates the footer "Collection Brand Info" metaobject (set to ACTIVE via `capabilities.publishable.status`)
+- If no footer metaobject exists, creates one and links it via `custom.brand_info_footer` metafield
+- Auth: `CRON_SECRET` via `Authorization: Bearer`
 
 ### Google Sheet Structure
-The audit writes to a Google Sheet with 23 columns (A-W):
-- Product metadata (title, handle, vendor, type, price, status, URL)
+
+**"Product Page Copy" tab** (23 columns, A-W):
+- Column A: Compiled Info (generated by Apps Script)
+- Product metadata (title, vendor, type, price, URL)
 - Audit scores (content rating, SEO title rating, meta desc rating, word count)
 - Tier info and word targets
-- Vendor URL and Shopify Product ID (column W — the full GID like `gid://shopify/Product/XXXXX`)
+- Shopify Product ID (column W)
+- Excludes Low priority products
 
-Troy has a Google Apps Script (`compileSeoInfo()`) that reads the sheet and generates a "Compiled Info" block for each product — this is what gets pasted into Claude to trigger the `product-descriptions` skill (installed globally at `~/.claude/skills/product-descriptions/`).
+**"Collection Audit" tab** (30 columns, A-AD):
+- Column A: Compiled Info (generated by Apps Script)
+- Collection metadata (title, type, template, product count)
+- Header audit (word count, rating, issues, paragraphs, internal links)
+- Footer audit (word count, rating, issues, heading, brand link)
+- SEO scores (title score, meta desc score, current values)
+- Top products list, last copy update date, Collection ID
+- Shows all collections including Low priority
+
+### Google Apps Script
+Troy has an Apps Script with a custom "RA Cycles" toolbar menu:
+- **Pull Products** / **Pull Collections** — triggers Vercel endpoints on demand
+- **Compile Product Info** / **Compile Collection Info** — generates Compiled Info blocks + applies priority colors (Critical=red, High=orange, Medium=yellow, Low=green)
+
+The Apps Script is split into 4 files: `menu-and-pull.gs`, `compile-product-info.gs`, `compile-collection-info.gs`, `dopost-webhook.gs`
 
 ### Rating System
 - **Good** — Meets word count target AND has required structural elements
 - **Light** — Has words but missing structure, OR slightly below target
 - **Thin** — Well below word count minimum
-- **Missing** — No description at all
+- **Missing** — No description/header at all
 
-### Tier System
+### Tier System (Products)
 | Tier | Products | Word Target | Required H3s |
 |------|----------|-------------|-------------|
 | T1 | Bikes, Wheels | 700-1000 | 3+ |
 | T2 | Apparel, Shoes, Helmets, Groupsets | 400-600 | 2+ |
 | T3 | Components, Mid-level parts | 200-400 | 1+ |
 | T4 | Small accessories, Tools, Consumables | 50-200 | 0 |
+
+### Collection Audit Criteria
+- **Header**: 100-150 words target, checks for paragraphs, internal links, model/brand mentions
+- **Footer**: 150-250 words target, checks for heading, brand website link, paragraph structure
+- **Type detection**: Brand collections (vendor name in title) vs Category collections
+- **Excluded templates**: `discover-template`, `discover-2026` (separate Discover page workflow)
+- **Excluded collections**: frontpage, all, empty, related_to_*, hidden*, test*
 
 ## Environment Variables
 All set in Vercel project settings:
@@ -78,20 +122,35 @@ All set in Vercel project settings:
 Local development uses `.env.local` with the same keys.
 
 ## Workflow: Writing Product Descriptions
-1. Daily audit runs and populates the Google Sheet
-2. Troy's Apps Script generates a Compiled Info block for a product (includes Shopify Product ID from column W)
-3. Troy pastes the Compiled Info into Claude (triggers the global `product-descriptions` skill at `~/.claude/skills/product-descriptions/`)
-4. Claude researches the product, writes a T1-T4 description, generates SEO title + meta
+1. Daily audit runs and populates the Google Sheet ("Product Page Copy" tab)
+2. Troy runs "Compile Product Info" from the RA Cycles menu to generate Compiled Info blocks
+3. Troy pastes the Compiled Info into Claude (triggers the `product-descriptions` skill)
+4. Claude researches the product, writes a T1-T4 description, generates SEO title + meta + RA Perspective (T1/T2)
 5. Troy reviews and says "push it"
-6. Claude navigates Chrome to `https://copy-writing-rouge.vercel.app` and uses same-origin `fetch('/api/push-description', ...)` to POST the description, SEO fields, and product ID
-7. The endpoint pushes to Shopify and sets `custom.product_description_needs` metafield to "Complete"
+6. Claude pushes via curl or Chrome to `/api/push-description`
+7. The endpoint pushes to Shopify and sets metafields
+
+## Workflow: Writing Collection Copy
+1. Daily collection audit runs and populates the Google Sheet ("Collection Audit" tab)
+2. Troy runs "Compile Collection Info" from the RA Cycles menu to generate Compiled Info blocks
+3. Troy pastes the Compiled Info into Claude (triggers the `collection-copywriting` skill)
+4. Claude researches the collection, writes header + footer + SEO
+5. Troy reviews and says "push it"
+6. Claude pushes via curl or Chrome to `/api/push-collection`
+7. The endpoint pushes header, footer metaobject (creates if needed, sets ACTIVE), SEO, and copy_last_updated
+
+## Gotchas
+- Shopify `MetaobjectCreateInput` does NOT accept a top-level `status` field — use `capabilities: { publishable: { status: "ACTIVE" } }` on both create and update
+- The `footerHtml` field in the push-collection endpoint expects Shopify's rich text JSON format, not HTML
+- Collections using `discover-template` or `discover-2026` are excluded from audit
+- Product audit excludes Low priority from the Google Sheet; collection audit shows all priorities
 
 ## Current Status
-Deployed and running in production. Daily audit cron executes at 6 AM UTC. Push endpoint is deployed and ready for use.
+Deployed and running in production. Both crons execute daily. All four endpoints are live.
 
 ## Conventions
-- TypeScript throughout (except the standalone Python push script)
+- TypeScript throughout
 - No external state — stateless per invocation
 - All Shopify calls go through the `shopifyGraphQL` function with automatic throttle/retry
 - Sheets are fully rewritten each audit run (no append)
-- Push endpoint is idempotent — safe to call multiple times for the same product
+- Push endpoints are idempotent — safe to call multiple times

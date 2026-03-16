@@ -165,7 +165,9 @@ function mentionsBrandNames(html: string, topProducts: ShopifyCollection["topPro
 // ── Content grading ──
 
 // Brand collections: 150-300 words ideal, 2-4 paragraphs, should mention models + have internal links
-// Category collections: 100-200 words ideal, 1-3 paragraphs, should mention brands
+// Header targets: 100-150 words for all collection types
+// Category collections: should mention brands
+// Brand collections: should mention specific models
 
 interface ContentConfig {
   thinBelow: number;
@@ -182,9 +184,9 @@ const CONTENT_CONFIG: Record<CollectionType, ContentConfig> = {
     label: "Brand Collection",
   },
   Category: {
-    thinBelow: 30,
-    lightBelow: 75,
-    goodAbove: 100,
+    thinBelow: 50,
+    lightBelow: 100,
+    goodAbove: 150,
     label: "Category Collection",
   },
 };
