@@ -267,11 +267,10 @@ export async function POST(req: NextRequest) {
           fields.push({ key: "brand_info", value: footerHtml });
         }
 
-        // Create the metaobject with ACTIVE status
+        // Create the metaobject (status not accepted on create input)
         const createResult = await shopifyGraphQL(CREATE_METAOBJECT, {
           metaobject: {
             type: "collection_brand_info",
-            status: "ACTIVE",
             fields,
           },
         });
@@ -284,6 +283,12 @@ export async function POST(req: NextRequest) {
           footerCreated = true;
 
           if (metaobjectId) {
+            // Set the metaobject to ACTIVE (defaults to DRAFT on create)
+            await shopifyGraphQL(UPDATE_METAOBJECT, {
+              id: metaobjectId,
+              metaobject: { status: "ACTIVE", fields: [] },
+            });
+
             // Link the new metaobject to the collection via brand_info_footer metafield
             const linkResult = await shopifyGraphQL(SET_METAFIELD, {
               metafields: [
