@@ -7,6 +7,10 @@
     {
       "path": "/api/collection-audit",
       "schedule": "15 6 * * *"
+    },
+    {
+      "path": "/api/collective-rewriter",
+      "schedule": "30 6 * * *"
     }
   ]
 }
