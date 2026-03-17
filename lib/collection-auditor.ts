@@ -178,15 +178,15 @@ interface ContentConfig {
 
 const CONTENT_CONFIG: Record<CollectionType, ContentConfig> = {
   Brand: {
-    thinBelow: 50,
-    lightBelow: 75,
-    goodAbove: 100,
+    thinBelow: 30,
+    lightBelow: 60,
+    goodAbove: 80,
     label: "Brand Collection",
   },
   Category: {
-    thinBelow: 50,
-    lightBelow: 75,
-    goodAbove: 100,
+    thinBelow: 30,
+    lightBelow: 60,
+    goodAbove: 80,
     label: "Category Collection",
   },
 };
@@ -234,12 +234,10 @@ function gradeHeader(collection: ShopifyCollection, collectionType: CollectionTy
 
   if (paragraphs < 2 && wordCount >= config.thinBelow) {
     issues.push(`Only ${paragraphs} paragraph(s) — should be 2-4`);
-    if (rating === "Good") rating = "Light";
   }
 
   if (!links && wordCount >= config.thinBelow) {
     issues.push("No internal links to products or sub-collections");
-    if (rating === "Good") rating = "Light";
   }
 
   if (collectionType === "Brand" && !models && wordCount >= config.thinBelow) {
