@@ -130,8 +130,8 @@ export async function writeAuditToSheets(
 
   const auditDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
-  // Filter out "Low" priority (Good ratings) — they don't need attention
-  const actionable = audits.filter((a) => a.priorityLabel !== "Low");
+  // Filter out "Low" (Good ratings) and "Medium" (T3/T4 Light) — auto_t3t4.py handles T3/T4 automation
+  const actionable = audits.filter((a) => a.priorityLabel !== "Low" && a.priorityLabel !== "Medium");
 
   // Sort by priority score descending (highest priority first)
   // Within same score: tier ascending (T1 first), then price descending
